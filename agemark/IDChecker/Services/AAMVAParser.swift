@@ -47,7 +47,7 @@ enum AAMVAParser {
         guard digits.count >= 8 else { return nil }
         let dateString = String(digits.prefix(8))
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.timeZone = .current
         guard let month = Int(dateString.prefix(2)),
               let day = Int(dateString.dropFirst(2).prefix(2)),
               let year = Int(dateString.suffix(4)) else { return nil }

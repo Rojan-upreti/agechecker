@@ -16,11 +16,13 @@ private enum LaunchPhase {
 }
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model = AppModel()
     @State private var launchPhase: LaunchPhase = .splash
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("preferredFastMode") private var preferredFastMode = false
     @AppStorage("preferredAgeThreshold") private var preferredAgeThreshold = 21
+    @AppStorage("preferredVerificationTier") private var preferredVerificationTier = VerificationTier.base.rawValue
 
     var body: some View {
         ZStack {
@@ -31,13 +33,16 @@ struct ContentView: View {
             case .onboarding:
                 OnboardingView(
                     initialFastMode: preferredFastMode,
-                    initialThreshold: preferredAgeThreshold
-                ) { fastMode, threshold in
+                    initialThreshold: preferredAgeThreshold,
+                    initialTier: VerificationTier(rawValue: preferredVerificationTier) ?? .base
+                ) { fastMode, threshold, tier in
                     preferredFastMode = fastMode
                     preferredAgeThreshold = threshold
+                    preferredVerificationTier = tier.rawValue
                     hasCompletedOnboarding = true
                     model.fastMode = fastMode
                     model.threshold = threshold
+                    model.verificationTier = tier
                     withAnimation(.easeInOut(duration: 0.45)) {
                         launchPhase = .app
                     }
@@ -48,11 +53,16 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.scanUsage.refresh() }
+        }
         .task {
+            await model.authentication.restoreSession()
             guard launchPhase == .splash else { return }
             try? await Task.sleep(for: .seconds(3))
             model.fastMode = preferredFastMode
             model.threshold = preferredAgeThreshold
+            model.verificationTier = VerificationTier(rawValue: preferredVerificationTier) ?? .base
             withAnimation(.easeInOut(duration: 0.55)) {
                 launchPhase = hasCompletedOnboarding ? .app : .onboarding
             }
@@ -94,6 +104,51 @@ private struct MainAppView: View {
                 SettingsView(model: model)
             case .paywall:
                 PaywallView(model: model)
+            case .premiumIntroduction:
+                PremiumIntroductionView(model: model)
+            case .premiumDocumentReview:
+                PremiumDocumentReviewView(model: model)
+            case .faceCapture:
+                if let portrait = model.idPortrait {
+                    FaceCaptureView(model: model, portrait: portrait)
+                } else {
+                    PremiumDocumentReviewView(model: model)
+                }
+            case .premiumResult:
+                PremiumResultView(model: model)
+            case .signIn:
+                SignInView(
+                    authentication: model.authentication,
+                    purpose: model.requestedAuthenticatedAction,
+                    closeAction: { model.cancelAuthentication() },
+                    completionAction: { model.authenticationCompleted() }
+                )
+            case .account:
+                AccountView(
+                    authentication: model.authentication,
+                    accessState: FeatureAccessManager.state(
+                        isAuthenticated: model.authentication.isAuthenticated,
+                        entitlement: FeatureAccessManager.premiumEntitlement(from: model.store)
+                    ),
+                    historyRetentionHours: model.logRetentionHours,
+                    closeAction: { model.screen = .home }
+                )
+            case .guestScanLimit:
+                GuestScanLimitView(
+                    createAccountAction: {
+                        Task {
+                            await model.authentication.signIn(intent: .createAccount)
+                            model.authenticationCompleted()
+                        }
+                    },
+                    signInAction: {
+                        Task {
+                            await model.authentication.signIn(intent: .signIn)
+                            model.authenticationCompleted()
+                        }
+                    },
+                    closeAction: { model.screen = .home }
+                )
             }
 
             if isMenuPresented, model.screen == .home {
@@ -127,19 +182,24 @@ private struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            HomeHeader(menuAction: menuAction, settingsAction: { model.screen = .settings })
+            HomeHeader(
+                menuAction: menuAction,
+                accountAction: { model.screen = .account },
+                isAuthenticated: model.authentication.isAuthenticated
+            )
             Spacer()
             HomeScanActions(
-                scanAction: { model.beginScan() },
-                testAction: { model.loadTest() }
+                baseAction: { model.beginScan(tier: .base) },
+                premiumAction: { model.beginScan(tier: .premium) }
             )
             Button("Paste Barcode") {
                 showingPaste = true
             }
             .frame(minHeight: 56)
-            Text("Scan count: \(model.scanCount) of 10 free scans used this month")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            GuestUsageIndicator(
+                isAuthenticated: model.authentication.isAuthenticated,
+                remaining: model.scanUsage.remainingToday
+            )
             Text(model.fastMode ? "Mode: Back barcode only • Age \(model.threshold)+" : "Mode: Both sides • Age \(model.threshold)+")
                 .font(.caption.bold())
                 .foregroundStyle(AgeMarkPalette.teal)
@@ -171,9 +231,29 @@ private struct HomeView: View {
     }
 }
 
+private struct GuestUsageIndicator: View {
+    let isAuthenticated: Bool
+    let remaining: Int
+
+    var body: some View {
+        if isAuthenticated {
+            Label("Signed in", systemImage: "checkmark.circle.fill")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(AgeMarkPalette.teal)
+        } else {
+            Text("\(remaining) of 5 free scans remaining today")
+                .font(.footnote.weight(remaining == 1 ? .bold : .medium))
+                .foregroundStyle(remaining <= 1 ? AgeMarkPalette.amber : .secondary)
+                .multilineTextAlignment(.center)
+                .accessibilityLabel("\(remaining) of 5 free identity scans remaining today")
+        }
+    }
+}
+
 private struct HomeHeader: View {
     let menuAction: () -> Void
-    let settingsAction: () -> Void
+    let accountAction: () -> Void
+    let isAuthenticated: Bool
 
     var body: some View {
         HStack(spacing: 14) {
@@ -199,35 +279,36 @@ private struct HomeHeader: View {
 
             Spacer()
 
-            Button(action: settingsAction) {
-                Image(systemName: "gearshape.fill")
+            Button(action: accountAction) {
+                Image(systemName: isAuthenticated ? "person.crop.circle.badge.checkmark" : "person.crop.circle")
                     .font(.title2)
                     .frame(width: 56, height: 56)
             }
-            .accessibilityLabel("Settings")
+            .accessibilityLabel(isAuthenticated ? "Authorized user account" : "Sign in")
         }
     }
 }
 
 private struct HomeScanActions: View {
-    let scanAction: () -> Void
-    let testAction: () -> Void
+    let baseAction: () -> Void
+    let premiumAction: () -> Void
 
     var body: some View {
         VStack(spacing: 16) {
-            Button(action: scanAction) {
-                Label("SCAN ID", systemImage: "viewfinder")
+            Button(action: baseAction) {
+                Label("BASE ID CHECK", systemImage: "viewfinder")
                     .font(.title.bold())
                     .frame(maxWidth: .infinity, minHeight: 88)
             }
             .buttonStyle(PrimaryButtonStyle(color: AgeMarkPalette.teal))
 
-            Button(action: testAction) {
-                Text("TEST")
+            Button(action: premiumAction) {
+                Label("PREMIUM IDENTITY CHECK", systemImage: "person.badge.shield.checkmark")
                     .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .frame(maxWidth: .infinity, minHeight: 66)
             }
             .buttonStyle(PrimaryButtonStyle(color: AgeMarkPalette.navy))
+
         }
     }
 }

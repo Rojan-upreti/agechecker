@@ -66,19 +66,23 @@ struct AgeMarkSplashView: View {
 struct OnboardingView: View {
     let initialFastMode: Bool
     let initialThreshold: Int
-    let onComplete: (Bool, Int) -> Void
+    let initialTier: VerificationTier
+    let onComplete: (Bool, Int, VerificationTier) -> Void
 
     @State private var step: OnboardingStep = .welcome
     @State private var fastMode: Bool
     @State private var threshold: Int
+    @State private var tier: VerificationTier
     @State private var animateBackground = false
 
-    init(initialFastMode: Bool, initialThreshold: Int, onComplete: @escaping (Bool, Int) -> Void) {
+    init(initialFastMode: Bool, initialThreshold: Int, initialTier: VerificationTier, onComplete: @escaping (Bool, Int, VerificationTier) -> Void) {
         self.initialFastMode = initialFastMode
         self.initialThreshold = initialThreshold
+        self.initialTier = initialTier
         self.onComplete = onComplete
         _fastMode = State(initialValue: initialFastMode)
         _threshold = State(initialValue: initialThreshold)
+        _tier = State(initialValue: initialTier)
     }
 
     var body: some View {
@@ -93,12 +97,12 @@ struct OnboardingView: View {
                         withAnimation(.snappy) { step = .scanMode }
                     }
                 case .scanMode:
-                    ScanModeStep(fastMode: $fastMode) {
+                    ScanModeStep(fastMode: $fastMode, tier: $tier) {
                         withAnimation(.snappy) { step = .ageThreshold }
                     }
                 case .ageThreshold:
                     AgeThresholdStep(threshold: $threshold) {
-                        onComplete(fastMode, threshold)
+                        onComplete(fastMode, threshold, tier)
                     }
                 }
                 Spacer()
@@ -180,25 +184,29 @@ private struct WelcomeStep: View {
 
 private struct ScanModeStep: View {
     @Binding var fastMode: Bool
+    @Binding var tier: VerificationTier
     let continueAction: () -> Void
 
     var body: some View {
         VStack(spacing: 18) {
-            Text("How should IDs be checked?")
+            Text("Choose a verification tier")
                 .font(.title.bold())
                 .multilineTextAlignment(.center)
             ChoiceCard(
-                title: "Back Barcode Only",
-                subtitle: "Fast 1–2 second PDF417 scan for high-volume service.",
+                title: "Base",
+                subtitle: "Keep the existing ID scan and PDF417 barcode checks.",
                 systemImage: "barcode.viewfinder",
-                isSelected: fastMode
-            ) { fastMode = true }
+                isSelected: tier == .base
+            ) { tier = .base }
             ChoiceCard(
-                title: "Both Sides",
-                subtitle: "Capture the front, read the back barcode, and compare key fields.",
-                systemImage: "rectangle.on.rectangle.angled",
-                isSelected: !fastMode
-            ) { fastMode = false }
+                title: "Premium",
+                subtitle: "Add consent, guided face capture, biometric matching, and liveness checks.",
+                systemImage: "person.badge.shield.checkmark",
+                isSelected: tier == .premium
+            ) {
+                tier = .premium
+                fastMode = false
+            }
             Button("Continue", action: continueAction)
                 .font(.headline)
                 .frame(maxWidth: .infinity, minHeight: 60)
@@ -272,6 +280,11 @@ private struct ChoiceCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 18))
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityHint(subtitle)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

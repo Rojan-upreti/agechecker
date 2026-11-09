@@ -6,7 +6,8 @@ import StoreKit
 final class StoreManager {
     static let productID = "net.taxcurb.idchecker.monthly"
     var product: Product?
-    var isSubscribed = false
+    private(set) var isSubscribed = false
+    private(set) var isLoadingEntitlements = true
     var errorMessage: String?
 
     init() {
@@ -49,7 +50,7 @@ final class StoreManager {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    private func refreshEntitlements() async {
+    func refreshEntitlements() async {
         var subscribed = false
         for await result in Transaction.currentEntitlements {
             if case .verified(let transaction) = result,
@@ -59,5 +60,6 @@ final class StoreManager {
             }
         }
         isSubscribed = subscribed
+        isLoadingEntitlements = false
     }
 }

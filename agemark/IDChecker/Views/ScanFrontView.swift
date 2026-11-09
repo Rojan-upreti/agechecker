@@ -19,7 +19,7 @@ struct ScanFrontView: View {
                         isTorchOn.toggle()
                         camera.setTorch(isTorchOn)
                     },
-                    cancel: { model.screen = .home }
+                    cancel: { model.cancelScan() }
                 )
 
                 Spacer(minLength: 8)

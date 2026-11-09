@@ -19,7 +19,7 @@ struct ScanBackView: View {
                         isTorchOn.toggle()
                         scanner.setTorch(isTorchOn)
                     },
-                    cancel: { model.screen = .home }
+                    cancel: { model.cancelScan() }
                 )
 
                 Spacer(minLength: 8)

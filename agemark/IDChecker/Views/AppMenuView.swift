@@ -245,21 +245,12 @@ private struct PrivacyContent: View {
 private struct PricingContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            LegalSection(title: "Simple Pricing") {
-                Text("The first 10 scans each month are free. A paid subscription unlocks unlimited scans while the subscription is active.")
+            LegalSection(title: "Guest and Account Access") {
+                Text("Guests receive 5 completed identity scans per UTC day. Signed-in users can continue regular scanning subject to organization and service policies.")
             }
-            PriceCard(
-                title: "Monthly",
-                price: "$10",
-                detail: "per month, billed monthly",
-                badge: "Flexible"
-            )
-            PriceCard(
-                title: "Annual",
-                price: "$96",
-                detail: "$8 per month, billed annually as $96",
-                badge: "Best Value"
-            )
+            LegalSection(title: "Premium Access") {
+                Text("Premium biometric verification requires both authentication and a verified Premium entitlement. Available products and localized prices are shown through Apple’s purchase sheet.")
+            }
             Text("Actual products, introductory offers, taxes, and localized prices shown during purchase are controlled by App Store Connect and Apple’s purchase sheet. Subscriptions renew automatically unless canceled at least 24 hours before renewal.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
